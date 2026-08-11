@@ -1,0 +1,5 @@
+a = input("Hello brother give a number please: ")
+print(f"Your Number is {a}")
+print("Now I am going to open a file he he : ")
+p = open(r"C:\Users\mdfar\Desktop\HelloWorld.txt")
+print(p.read())

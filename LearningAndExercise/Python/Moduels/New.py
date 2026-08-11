@@ -1,0 +1,2 @@
+import Hello
+Hello.Hello()
