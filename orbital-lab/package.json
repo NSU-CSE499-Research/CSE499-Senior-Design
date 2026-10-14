@@ -1,0 +1,13 @@
+{
+  "name": "orbital-lab",
+  "version": "1.0.0",
+  "private": true,
+  "description": "An offline NASA-inspired spaceflight learning prototype.",
+  "scripts": {
+    "start": "node server.cjs",
+    "test": "node --test tests/*.test.cjs",
+    "check": "node --check js/app.js && node --check js/physics.js && node --test tests/*.test.cjs"
+  },
+  "engines": { "node": ">=18" },
+  "license": "MIT"
+}

@@ -1,0 +1,16 @@
+ORBITAL LAB — NASA-inspired spaceflight learning prototype
+
+1. Extract the whole ZIP.
+2. Open the orbital-lab folder.
+3. Double-click index.html.
+
+No installation or internet connection is needed for the application.
+For a quick presentation, scroll to the Flight Lab and select
+"Watch a guided flight".
+
+বাংলায়: ZIP extract করে orbital-lab folder-এর index.html খুলুন।
+Demo দেখাতে Watch a guided flight চাপুন।
+
+README.md explains controls, code editing, optional local serving,
+and the included tests. docs/ contains the model notes, credits,
+verification limits, and a suggested three-person capstone plan.
