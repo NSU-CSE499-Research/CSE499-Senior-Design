@@ -1,0 +1,8 @@
+{
+  "passed": 8,
+  "total": 8,
+  "failed": 0,
+  "notebook_sha256": "6826f26ce530fc80782acd00dbea743e1d0455792ce6e4287942f6ede3d26d2d",
+  "method_count": 7,
+  "note": "Integration smoke checks only; no LAV-DF training or final evaluation"
+}

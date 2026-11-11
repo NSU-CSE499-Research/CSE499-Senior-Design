@@ -1,0 +1,8 @@
+# Local synthetic experiments, integration smoke, plotting and PDF regeneration.
+numpy>=2.0,<3
+scikit-learn>=1.5,<2
+matplotlib>=3.8,<4
+reportlab>=4,<5
+
+# Real Kaggle video pipeline uses additional packages and pretrained weights,
+# as specified in the original notebook (not included in this local smoke suite).

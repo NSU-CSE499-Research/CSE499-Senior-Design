@@ -1,0 +1,6 @@
+condition,n_pairs,mae_delta_robust_minus_original_ms,bootstrap_low_ms,bootstrap_high_ms
+genuine_aligned,360,0.0,0.0,0.0
+clean_shifted,360,0.0,0.0,0.0
+audio_edit,360,-161.333,-184.0,-140.667
+visual_edit,360,-76.0,-90.006,-62.656
+dual_edit,360,-171.556,-194.233,-151.989

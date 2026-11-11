@@ -1,0 +1,9 @@
+check,status,detail
+Seven-model registry includes robust audio/visual heads,PASS,ok
+Robust and original delay-feature dimensions match,PASS,"matched design matrices of shape (80, 81)"
+Train all methods including two LWCA heads,PASS,trained 10 heads for 7 methods on synthetic arrays
+Generate finite robust audio and visual predictions,PASS,ok
+Expose the correct per-model estimated lag,PASS,"prediction metadata uses LWCA lag, not the old global lag"
+Count audio alarms on visual-only fake clips,PASS,cross-modal false attribution counted when clip-level alert is correct
+Produce new paired-source comparison rows,PASS,ok
+Do not accidentally enable final test or media variants,PASS,ok

@@ -1,0 +1,264 @@
+--- cell_1_original
++++ cell_1_lwca
+@@ -47,8 +47,8 @@
+ HIDDEN = 48
+ THREADS = 2
+ MAX_DISK_CACHE_GB = 12             # guard (GiB); move completed cache to private input for later sessions
+-EVAL_MODEL = "delay_aware"         # fixed before external inference
+-CODE_VERSION = "nsu-lav-1.0"
++EVAL_MODEL = "robust_delay_aware"         # fixed before external inference
++CODE_VERSION = "nsu-lav-1.1-lwca"
+ 
+ print(f"START | BanglaAV | preset={PRESET} | mode={ACTION} | final_test={RUN_FINAL_TEST}", flush=True)
+ print("Settings loaded:", DATA_PATH, flush=True)--- cell_9_original
++++ cell_9_lwca
+@@ -30,19 +30,86 @@
+     if confidence<.25 or (best and corr[best]-corr[0]<.04): best=0
+     return best,confidence,ap,vp
+ 
++def _corr(a, b):
++    """Pearson correlation, with constant windows counted as uninformative."""
++    a = np.asarray(a, dtype=np.float64)
++    b = np.asarray(b, dtype=np.float64)
++    aa = a - a.mean()
++    bb = b - b.mean()
++    den = float(np.sqrt(np.dot(aa, aa) * np.dot(bb, bb)))
++    if den < 1e-8:
++        return 0.0
++    return float(np.dot(aa, bb) / den)
++
++def robust_alignment(f, window_bins=16, hop_bins=8, max_lag=5,
++                     min_corr=.24, min_consensus=.50):
++    """Estimate clip-wide lag using agreement across overlapping local windows.
++
++    1. Derive audio energy changes and face-motion activity.
++    2. Estimate the best cross-correlation lag in each local window.
++    3. Exclude low-correlation windows (no reliable speech-motion match).
++    4. Select the most frequently supported lag; reject low-consensus shifts.
++
++    A positive returned lag means audio activity occurs later than mouth motion.
++    The method does not inspect ground-truth annotations or model predictions.
++    """
++    ap = unit(np.abs(np.diff(f["ap"], prepend=f["ap"][0])))
++    vp = unit(f["vp"])
++    n = len(ap)
++    m = min(int(max_lag), (n - 8) // 2)
++    if m < 1 or ap.std() < 1e-6 or vp.std() < 1e-6:
++        return 0, 0., ap, vp
++
++    valid = np.arange(m, n - m)
++    win = min(int(window_bins), len(valid))
++    if win < 12:
++        return 0, 0., ap, vp
++    hop = max(1, int(hop_bins))
++    starts = list(range(0, len(valid) - win + 1, hop))
++    if starts[-1] != len(valid) - win:
++        starts.append(len(valid) - win)
++
++    votes = []
++    lags = range(-m, m + 1)
++    for start in starts:
++        t = valid[start:start + win]
++        v = vp[t]
++        if float(np.std(v)) < .10:
++            continue
++        scores = {k: _corr(ap[t + k], v) for k in lags}
++        candidate = max(scores, key=lambda k: (scores[k], -abs(k)))
++        top = float(scores[candidate])
++        if top >= min_corr:
++            votes.append((int(candidate), top, scores[0]))
++
++    if not votes:
++        return 0, 0., ap, vp
++    counts = {k: sum(1 for observed, _, _ in votes if observed == k) for k in lags}
++    best = max(counts, key=lambda k: (counts[k], -abs(k)))
++    supporters = [x for x in votes if x[0] == best]
++    agreement = len(supporters) / len(votes)
++    strength = float(np.median([x[1] for x in supporters]))
++    confidence = max(0., min(1., agreement * max(0., strength)))
++    if best != 0 and agreement < min_consensus:
++        best = 0
++    # Avoid declaring an offset when its advantage over no lag is marginal.
++    if best != 0 and float(np.median([x[1] - x[2] for x in supporters])) < .04:
++        best = 0
++    return int(best), confidence, ap, vp
++
+ def design(f,kind):
+     A,V=f["A"],f["V"]; n=len(A); t=np.arange(n)
+     if kind=="audio": base=A
+     elif kind=="visual": base=V
+     else:
+-        lag,conf,ap,vp=alignment(f)
++        lag,conf,ap,vp=(robust_alignment(f) if kind=="robust_delay" else alignment(f))
+         ac=t+lag; vc=t-lag
+         ia=ac.clip(0,n-1); iv=vc.clip(0,n-1)
+         cross=np.column_stack([ap,vp,abs(ap-vp),abs(ap[ia]-vp),abs(ap-vp[iv]),
+                                np.full(n,lag/5.),np.full(n,conf),ac==ia,vc==iv])
+         if kind=="raw": base=np.column_stack([A,V,ap,vp,abs(ap-vp)])
+         elif kind=="sync": base=cross
+-        elif kind=="delay":
++        elif kind in ("delay","robust_delay"):
+             # Both native clocks remain present. Shifted evidence for matching is additional.
+             base=np.column_stack([A,V,A[ia],V[iv],cross])
+         else: raise ValueError(kind)
+@@ -139,14 +206,15 @@
+         "late_fusion":{"a":"audio_a","v":"visual_v"},
+         "raw_fusion":{"a":"raw_a","v":"raw_v"},
+         "alignment_only":{"a":"sync_a","v":"sync_v"},
+-        "delay_aware":{"a":"delay_a","v":"delay_v"}}
++        "delay_aware":{"a":"delay_a","v":"delay_v"},
++        "robust_delay_aware":{"a":"robust_a","v":"robust_v"}}
+ if USE_SHIFT_CONSISTENCY:
+     MODELS["delay_without_consistency"]={"a":"delay0_a","v":"delay0_v"}
+ 
+ def trained_heads(tr,dev,cache,src,seed,store_path=None,previous_path=None):
+     heads={}; logs=[]
+     for name in sorted({h for d in MODELS.values() for h in d.values()}):
+-        typ,ch=name.split("_"); kind="delay" if typ=="delay0" else typ
++        typ,ch=name.split("_"); kind="robust_delay" if typ=="robust" else ("delay" if typ=="delay0" else typ)
+         local=(store_path/(name+".npz")) if store_path else None
+         prior=(previous_path/(name+".npz")) if previous_path else None
+         complete=next((path for path in (local,prior) if path and path.is_file()),None)
+@@ -162,7 +230,7 @@
+         X,y,xpair=fit_windows(tr,cache,src,kind,ch,MAX_FIT_WINDOWS,augment=USE_SHIFT_CONSISTENCY)
+         xd,yd,_=fit_windows(dev,cache,src,kind,ch,min(10000,MAX_FIT_WINDOWS),augment=False)
+         head,history=fit_head(X,y,xpair,xd,yd,seed+(0 if ch=="a" else 1),
+-                              penalty=.5 if typ=="delay" and USE_SHIFT_CONSISTENCY else 0.)
++                              penalty=.5 if typ in ("delay","robust") and USE_SHIFT_CONSISTENCY else 0.)
+         heads[name]=head
+         history=[dict(seed=seed,head=name,**rec) for rec in history]
+         logs.extend(history)
+@@ -175,7 +243,7 @@
+ def head_scores(f,heads):
+     mats={}; output={}
+     for name,h in heads.items():
+-        typ=name.split("_")[0]; typ="delay" if typ=="delay0" else typ
++        typ=name.split("_")[0]; typ="robust_delay" if typ=="robust" else ("delay" if typ=="delay0" else typ)
+         if typ not in mats: mats[typ]=design(f,typ)
+         output[name]=score(h,mats[typ])
+     return output
+--- cell_11_original
++++ cell_11_lwca
+@@ -72,7 +72,10 @@
+ 
+ def small_f(f):
+     lag,confidence,_,_=alignment(f)
+-    return {"edges":f["edges"],"face":float(f["face"]),"lag":lag*STEP,"alignment_confidence":confidence}
++    rlag,rconfidence,_,_=robust_alignment(f)
++    return {"edges":f["edges"],"face":float(f["face"]),"lag":lag*STEP,
++            "alignment_confidence":confidence,"robust_lag":rlag*STEP,
++            "robust_alignment_confidence":rconfidence}
+ 
+ def on_reference_grid(f,reference):
+     # H.264/AAC can round the final frame. Put compressed features back on the clean media clock.
+@@ -133,7 +136,7 @@
+             "label":r.get("label"),"original_label":r.get("original_label",r.get("label")),"kind":r.get("kind","external"),"gt":gt,
+             "group_verified":r.get("group_verified",False),
+             "pred":by_channel,"ranked":ranks,"clip_score":float(combined.max()),
+-            "alarm":bool(union),"estimated_audio_lag_s":float(f["lag"]),"alignment_confidence":float(f["alignment_confidence"]),"face_tracking_fraction":float(f["face"]),
++            "alarm":bool(union),"estimated_audio_lag_s":float(f["robust_lag"] if model=="robust_delay_aware" else f["lag"]),"alignment_confidence":float(f["robust_alignment_confidence"] if model=="robust_delay_aware" else f["alignment_confidence"]),"face_tracking_fraction":float(f["face"]),
+             "evaluated_time_s":[float(f["edges"][0]),float(f["edges"][-1])]}
+ 
+ def report(dets):
+@@ -156,6 +159,15 @@
+     for k in (50,75):
+         ps=[out[f"{c}_AP@{k}"] for c in ("a","v")]
+         out[f"AV_macro_mAP@{k}"]=float(np.mean(ps)) if np.isfinite(ps).all() else np.nan
++    # Cross-modal attribution errors are hidden by any-stream interval metrics.
++    visual_only=[d for d in dets if d["kind"]=="visual" and "a" in d["pred"]]
++    audio_only=[d for d in dets if d["kind"]=="audio" and "v" in d["pred"]]
++    out["audio_alarm_on_visual_only_clips"]=sum(bool(d["pred"]["a"]) for d in visual_only)
++    out["visual_only_clips_with_audio_head"]=len(visual_only)
++    out["visual_alarm_on_audio_only_clips"]=sum(bool(d["pred"]["v"]) for d in audio_only)
++    out["audio_only_clips_with_visual_head"]=len(audio_only)
++    out["audio_spurious_on_visual_rate"]=div(out["audio_alarm_on_visual_only_clips"],len(visual_only))
++    out["visual_spurious_on_audio_rate"]=div(out["visual_alarm_on_audio_only_clips"],len(audio_only))
+     return out
+ 
+ def cluster_ci(dets,seed=903,nrep=400):
+--- cell_13_original
++++ cell_13_lwca
+@@ -60,7 +60,7 @@
+             for model in model_map:
+                 detections=[describe(r,f,s,model,model_map,thresholds) for r,f,s in records]
+                 summaries.append(dict(seed=seed,split=split,condition=condition,model=model,**report(detections)))
+-                if model in ("late_fusion","delay_aware"):
++                if model in ("late_fusion","delay_aware","raw_fusion","robust_delay_aware"):
+                     pairs[model]={d["file"]:(d["speaker"],d["group"],d["group_verified"],per_clip_counts(d)) for d in detections}
+                 for kind in sorted(set(d["kind"] for d in detections)):
+                     selected=[d for d in detections if d["kind"]==kind]
+--- cell_15_original
++++ cell_15_lwca
+@@ -45,32 +45,45 @@
+     return np.array([int(d["alarm"] and d["original_label"]==0),int(d["original_label"]==0),*seg],dtype=float)
+ 
+ def paired_gaps(summaries,nrep=400):
+-    """Proposed minus late fusion, pairing each resample by speaker/source for both methods."""
+-    if "delay_aware" not in summaries or "late_fusion" not in summaries: return []
+-    left,right=summaries["delay_aware"],summaries["late_fusion"]
+-    if left.keys()!=right.keys() or not left: raise ValueError("Cannot pair different clip IDs.")
+-    if all(left[k][0] for k in left): level=0; tag="speaker"
+-    elif all(left[k][2] for k in left): level=1; tag="source"
+-    else: return [dict(metric=m,delta=None,lo=None,hi=None,cluster_type="IDs incomplete") for m in ("genuine_FPR","any_segment_F1@50")]
+-    bins=defaultdict(lambda:np.zeros((2,5)))
+-    for k in left:
+-        bins[left[k][level]][0]+=left[k][3];bins[left[k][level]][1]+=right[k][3]
+-    arr=np.array(list(bins.values())); rng=np.random.default_rng(601)
+-    def diff(values,metric):
+-        num=[]
+-        for fp,n,tp,sfp,fn in values:
+-            num.append(div(fp,n) if metric=="genuine_FPR" else (f1(tp,sfp,fn) if tp+fn else np.nan))
+-        return num[0]-num[1]
+-    results=[]
+-    for metric in ("genuine_FPR","any_segment_F1@50"):
+-        full=diff(arr.sum(0),metric);boot=[]
+-        if len(arr)>=2:
+-            for _ in range(nrep):
+-                val=diff(arr[rng.integers(len(arr),size=len(arr))].sum(0),metric)
+-                if np.isfinite(val): boot.append(val)
+-        results.append(dict(metric=metric,delta=full,lo=np.quantile(boot,.025) if boot else None,
+-                            hi=np.quantile(boot,.975) if boot else None,clusters=len(arr),cluster_type=tag,
+-                            valid_replicates=len(boot),contrast="delay_aware minus late_fusion"))
+-    return results
++    """Paired differences in FPR and segment F1, including the new LWCA model."""
++    comparisons=(("delay_aware","late_fusion"),
++                 ("robust_delay_aware","delay_aware"),
++                 ("robust_delay_aware","raw_fusion"),
++                 ("robust_delay_aware","late_fusion"))
++    out=[]
++    for proposed,reference in comparisons:
++        if proposed not in summaries or reference not in summaries: continue
++        left,right=summaries[proposed],summaries[reference]
++        if left.keys()!=right.keys() or not left: raise ValueError("Paired comparison clip IDs differ")
++        contrast=proposed+" minus "+reference
++        if all(left[k][0] for k in left): level=0; group_type="speaker"
++        elif all(left[k][2] for k in left): level=1; group_type="source"
++        else:
++            out.extend(dict(metric=m,delta=None,lo=None,hi=None,cluster_type="IDs incomplete",
++                            contrast=contrast) for m in ("genuine_FPR","any_segment_F1@50"))
++            continue
++        groups=defaultdict(lambda:np.zeros((2,5)))
++        for k in left:
++            groups[left[k][level]][0]+=left[k][3]
++            groups[left[k][level]][1]+=right[k][3]
++        a=np.array(list(groups.values()))
++        rng=np.random.default_rng(601)
++        for metric in ("genuine_FPR","any_segment_F1@50"):
++            def difference(counts):
++                vals=[]
++                for fp,n,tp,sfp,fn in counts:
++                    vals.append(div(fp,n) if metric=="genuine_FPR" else (f1(tp,sfp,fn) if tp+fn else np.nan))
++                return vals[0]-vals[1]
++            full=difference(a.sum(0)); boot=[]
++            if len(a)>=2:
++                for _ in range(nrep):
++                    x=difference(a[rng.integers(len(a),size=len(a))].sum(0))
++                    if np.isfinite(x): boot.append(x)
++            out.append(dict(metric=metric,delta=full,
++                            lo=float(np.quantile(boot,.025)) if boot else None,
++                            hi=float(np.quantile(boot,.975)) if boot else None,
++                            clusters=len(a),cluster_type=group_type,
++                            valid_replicates=len(boot),contrast=contrast))
++    return out
+ 
+ print("[8/11] READY | Baseline comparison", flush=True)

@@ -1,0 +1,32 @@
+{
+  "experiment": "Controlled synthetic feature-level lag estimation under localized corruption",
+  "note": "This is not an empirical LAV-DF/Bangla deepfake benchmark.",
+  "seeds": [
+    17,
+    29,
+    43
+  ],
+  "samples_per_seed_per_condition": 120,
+  "n_simulated_examples": 1800,
+  "generator_protocol": "development",
+  "conditions": [
+    "genuine_aligned",
+    "clean_shifted",
+    "audio_edit",
+    "visual_edit",
+    "dual_edit"
+  ],
+  "time_bin_ms": 80,
+  "edit_duration_bins": "30-45",
+  "max_tested_lag_bins": 4,
+  "original_notebook_sha256": "a6618817eea658ddb17283f7b85c859baa6d42b22100670d3f1fa5521f9d2151",
+  "methods": [
+    "original_global",
+    "robust_consensus",
+    "lwca_32bin",
+    "lwca_48bin"
+  ],
+  "ablations": "16-, 32-, and 48-bin local windows; 16-bin model integrated into Kaggle notebook",
+  "bootstrap_resamples": 1000,
+  "bootstrap_unit": "individual synthetic sequence"
+}
