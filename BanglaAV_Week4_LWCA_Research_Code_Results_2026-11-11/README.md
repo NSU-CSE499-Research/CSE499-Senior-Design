@@ -26,7 +26,7 @@ method in the broader research literature.
 
 | Item | File or directory |
 |---|---|
-| Faculty-ready, one-page IEEE-like report | `BanglaAV_Week4_Revised_Research_Update_2026-11-11.pdf` |
+
 | New Kaggle training/evaluation notebook | `code/cse499b_update4_LWCA.ipynb` |
 | Unmodified original Update 3 source | `code/original_update3.ipynb` |
 | Exact code difference | `code/changes_from_update3.diff` |
@@ -122,17 +122,7 @@ split, and ensure sufficient GPU runtime. It retains safe defaults:
 `RUN_FINAL_TEST=False`, `RUN_ROBUSTNESS=False`, and `ALLOW_VARIANTS=False`.
 Only unseal the final test after development model/threshold selection is frozen.
 
-## Faculty-facing next experiment (necessary for a real result)
-
-1. Fit original raw fusion, delay-aware fusion, and the added LWCA-based model
-   on the **same original** training/development split with at least three seeds.
-2. Report edit-level AP50/F1/recall, genuine false-alarm rate and *cross-modal
-   false attribution*, including matched-edit-recall comparisons.
-3. Evaluate equal-support +240-ms / -240-ms audio-feature shifts, with shifted
-   audio labels, and confirm tolerance to ordinary recording delays.
-4. Lock design and threshold choices before evaluating the reserved final set.
-5. Collect consented Bengali and Bengali-English recordings and split by verified
-   speaker/source before claiming Bengali generalization.
+.
 
 ## Provenance
 
